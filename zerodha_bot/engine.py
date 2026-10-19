@@ -47,8 +47,9 @@ class Engine:
                    for s, p in self.ledger.positions.items())
 
     # --- entries -----------------------------------------------------------
-    def enter(self, symbol: str, direction: str, entry_hint: float, rating: str) -> bool:
-        plan = risk.size(self.cfg, self.ledger, self.accumulated, symbol, direction, entry_hint)
+    def enter(self, symbol: str, direction: str, entry_hint: float, rating: str,
+              range_pct: float | None = None) -> bool:
+        plan = risk.size(self.cfg, self.ledger, self.accumulated, symbol, direction, entry_hint, range_pct)
         if isinstance(plan, str):
             log.info("%s skipped: %s", symbol, plan)
             return False
@@ -60,8 +61,8 @@ class Engine:
             return False
         # Re-anchor stop/target on the real fill price.
         sign = 1 if direction == "LONG" else -1
-        stop = round(fill.price * (1 - sign * self.cfg.stop_loss_pct / 100), 2)
-        target = round(fill.price * (1 + sign * self.cfg.target_pct / 100), 2)
+        stop = round(fill.price * (1 - sign * plan.stop_pct / 100), 2)
+        target = round(fill.price * (1 + sign * plan.target_pct / 100), 2)
         pos = Position(symbol, direction, fill.qty, fill.price, stop, target,
                        risk.worst_loss(direction, fill.qty, fill.price, stop), rating, fill.order_id)
         try:
@@ -117,6 +118,32 @@ class Engine:
                 self._try_exit(symbol, "STOP", stop_price=pos.stop)
             elif target_hit:
                 self._try_exit(symbol, "TARGET", limit_price=pos.target)
+            else:
+                self._maybe_breakeven(pos, lo, hi)
+
+    def _maybe_breakeven(self, pos: Position, lo: float, hi: float) -> None:
+        """Lock the stop at entry after a favourable move. Judged on bars already checked against
+        the old stop, so a bar that both triggers and reverses is not credited."""
+        pct = self.cfg.breakeven_trigger_pct
+        if not pct:
+            return
+        long_ = pos.direction == "LONG"
+        if (pos.stop >= pos.entry) if long_ else (pos.stop <= pos.entry):
+            return  # already moved
+        trigger = pos.entry * (1 + pct / 100) if long_ else pos.entry * (1 - pct / 100)
+        if not ((hi >= trigger) if long_ else (lo <= trigger)):
+            return
+        if pos.stop_order:
+            try:
+                self.broker.cancel(pos.stop_order)
+                pos.stop_order = self.broker.stop_order(
+                    pos.symbol, "SELL" if long_ else "BUY", pos.qty, pos.entry)
+            except Exception as exc:
+                log.error("%s: could not move exchange stop to entry (%s)", pos.symbol, exc)
+                pos.stop_order = None
+        pos.stop = pos.entry
+        self._save()
+        log.info("%s: stop moved to breakeven %.2f", pos.symbol, pos.entry)
 
     def _try_exit(self, symbol, reason, **fill_hints):
         try:
@@ -167,12 +194,12 @@ class Engine:
             self.ledger.signals[sym] = {"rating": sig.rating, "summary": sig.summary}
             self._save()
             direction = risk.direction_for(self.cfg, sig.rating)
-            log.info("%s: agent says %s (day %+.2f%%)", sym, sig.rating, cand.change_pct)
+            log.info("%s: signal %s (day %+.2f%%)", sym, sig.rating, cand.change_pct)
             if direction is None:
                 continue
             if self.cfg.require_momentum_agreement and (cand.change_pct > 0) != (direction == "LONG"):
                 log.info("%s: %s contradicts intraday momentum; skipped", sym, direction)
                 continue
-            fresh = self.broker.quotes([sym])[sym].ltp  # agent runs take minutes; price has moved
-            self.enter(sym, direction, fresh, sig.rating)
+            fresh = self.broker.quotes([sym])[sym]  # agent runs take minutes; price has moved
+            self.enter(sym, direction, fresh.ltp, sig.rating, fresh.range_pct)
             self.tick()  # keep stops honoured between slow agent runs

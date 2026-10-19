@@ -1,5 +1,7 @@
 """Scan universes. NSE index membership changes; pass ZBOT_UNIVERSE=SYM1,SYM2 to override."""
 
+# Tata Motors split into TMPV (passenger) and TMCV (commercial); symbols as reported by the
+# user, so a wrong one is skipped with a warning by the data loader.
 # M&M is left out: the agent rejects "&" in tickers (path-safety check).
 NIFTY50 = [
     "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK", "BAJAJ-AUTO",
@@ -8,7 +10,7 @@ NIFTY50 = [
     "HEROMOTOCO", "HINDALCO", "HINDUNILVR", "ICICIBANK", "ITC", "INDUSINDBK", "INFY",
     "JSWSTEEL", "KOTAKBANK", "LT", "MARUTI", "NTPC", "NESTLEIND", "ONGC",
     "POWERGRID", "RELIANCE", "SBILIFE", "SBIN", "SUNPHARMA", "TCS", "TATACONSUM",
-    "TATAMOTORS", "TATASTEEL", "TECHM", "TITAN", "TRENT", "ULTRACEMCO", "WIPRO", "SHRIRAMFIN",
+    "TMPV", "TMCV", "TATASTEEL", "TECHM", "TITAN", "TRENT", "ULTRACEMCO", "WIPRO", "SHRIRAMFIN",
 ]
 
 

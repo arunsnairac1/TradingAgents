@@ -23,6 +23,8 @@ class Plan:
     stop: float
     target: float
     risk: float
+    stop_pct: float
+    target_pct: float
 
 
 def loss_limit(cfg: BotConfig, accumulated: float) -> float:
@@ -43,8 +45,16 @@ def worst_loss(direction: str, qty: int, entry: float, stop: float) -> float:
     return -net_pnl(direction, qty, entry, stop)
 
 
+def stop_target_pct(cfg: BotConfig, range_pct: float | None) -> tuple[float, float]:
+    """Stop and target distances (% of entry). Range mode widens stops on stocks that already moved a lot."""
+    if cfg.stop_mode == "range" and range_pct:
+        stop = min(cfg.stop_max_pct, max(cfg.stop_loss_pct, cfg.stop_range_mult * range_pct))
+        return stop, cfg.reward_ratio * stop
+    return cfg.stop_loss_pct, cfg.target_pct
+
+
 def size(cfg: BotConfig, ledger: Ledger, accumulated: float, symbol: str,
-         direction: str, entry: float) -> Plan | str:
+         direction: str, entry: float, range_pct: float | None = None) -> Plan | str:
     """A Plan, or a string saying why the trade is refused."""
     if ledger.halted:
         return f"day halted ({ledger.halted})"
@@ -53,15 +63,20 @@ def size(cfg: BotConfig, ledger: Ledger, accumulated: float, symbol: str,
     if len(ledger.positions) >= cfg.max_positions:
         return "max open positions reached"
 
+    if cfg.max_same_direction and sum(
+            p.direction == direction for p in ledger.positions.values()) >= cfg.max_same_direction:
+        return f"already {cfg.max_same_direction} open {direction.lower()}s"
+
     budget = loss_limit(cfg, accumulated) + ledger.realized - sum(p.risk for p in ledger.positions.values())
     if budget <= 0:
         return "no daily loss budget left"
     risk = min(cfg.risk_per_trade, budget)
 
     sign = 1 if direction == "LONG" else -1
+    stop_pct, target_pct = stop_target_pct(cfg, range_pct)
     entry = tick_round(entry)
-    stop = tick_round(entry * (1 - sign * cfg.stop_loss_pct / 100))
-    target = tick_round(entry * (1 + sign * cfg.target_pct / 100))
+    stop = tick_round(entry * (1 - sign * stop_pct / 100))
+    target = tick_round(entry * (1 + sign * target_pct / 100))
 
     qty = min(
         math.floor(risk / abs(entry - stop)),
@@ -76,7 +91,8 @@ def size(cfg: BotConfig, ledger: Ledger, accumulated: float, symbol: str,
     reward = net_pnl(direction, qty, entry, target)
     if reward <= 0 or reward < cfg.min_reward_to_cost * costs:
         return f"charges eat the target (net {reward:.0f} vs costs {costs:.0f})"
-    return Plan(symbol, direction, qty, entry, stop, target, worst_loss(direction, qty, entry, stop))
+    return Plan(symbol, direction, qty, entry, stop, target,
+                worst_loss(direction, qty, entry, stop), stop_pct, target_pct)
 
 
 def day_status(cfg: BotConfig, ledger: Ledger, accumulated: float, unrealized: float) -> str:

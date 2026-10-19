@@ -29,6 +29,14 @@ class BotConfig:
     risk_per_trade: float = 400.0         # max rupee loss on a single trade at its stop
     stop_loss_pct: float = 0.5            # % from entry
     target_pct: float = 1.0               # % from entry
+    # "fixed": stop/target are stop_loss_pct/target_pct. "range": stop = stop_range_mult x the
+    # stock's range so far today, clamped to [stop_loss_pct, stop_max_pct], target = reward_ratio x stop.
+    stop_mode: str = "fixed"
+    stop_range_mult: float = 0.3
+    stop_max_pct: float = 1.5
+    reward_ratio: float = 2.0
+    breakeven_trigger_pct: float = 0.0    # move the stop to entry once price is this % in profit (0 = off)
+    max_same_direction: int = 0           # cap on open longs / shorts (0 = off)
     min_reward_to_cost: float = 3.0       # net target profit must beat round-trip costs by this
     allow_short: bool = True              # MIS permits intraday shorts
 
@@ -60,6 +68,8 @@ class BotConfig:
     def __post_init__(self):
         if self.mode not in ("dry-run", "live"):
             raise ValueError(f"ZBOT_MODE must be dry-run or live, got {self.mode!r}")
+        if self.stop_mode not in ("fixed", "range"):
+            raise ValueError("ZBOT_STOP_MODE must be fixed or range")
         if self.product != "MIS":
             raise ValueError("this bot is intraday only (MIS)")
         for name in ("capital", "daily_loss_limit", "daily_profit_target", "risk_per_trade",

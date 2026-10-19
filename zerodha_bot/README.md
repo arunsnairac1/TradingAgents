@@ -42,6 +42,16 @@ that hit the target or loss limit; trades go to `trades.csv` beside `summary.jso
   `ZBOT_BACKTEST_SLIPPAGE_PCT` (0.03) is charged against you on every fill. Real fills can still be worse.
 - Scan inputs are approximate: volume is cumulative to the scan time, and the universe is today's Nifty 50.
 
+### Comparing rule variants
+```bash
+zerodha-bot backtest --from 2026-04-01 --to 2026-10-16 --compare
+```
+Runs the built-in variants (wider stops, volatility-scaled stops, breakeven stop, max 2 per side, later scan) on the
+same days and prints one table. The `first 60%` / `rest` columns split the days: **pick on `rest`**, not `net`, or you
+are just fitting the past. Use a long window (months, not weeks); candles are cached after the first download.
+All the variant knobs are off by default, so live behaviour only changes when you turn one on:
+`ZBOT_STOP_MODE=range`, `ZBOT_BREAKEVEN_TRIGGER_PCT=0.5`, `ZBOT_MAX_SAME_DIRECTION=2`, `ZBOT_SCAN_AFTER=09:45`.
+
 ## Rules (all `ZBOT_*` env overrides, see `config.py`)
 | Rule | Default |
 |---|---|

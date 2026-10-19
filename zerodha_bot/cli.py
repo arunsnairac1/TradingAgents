@@ -46,6 +46,11 @@ def _backtest(cfg: BotConfig, args) -> int:
 
     name = f"{datetime.now():%Y%m%d-%H%M%S}-{'agent' if agent else 'momentum'}"
     root = HOME / "backtests" / name
+    if args.compare:
+        runs = bt.compare(cfg, candles, start.isoformat(), end.isoformat(), root, agent)
+        print(bt.format_comparison(runs))
+        print("Judge variants on the 'rest' column (days they were not picked on), not on 'net'.")
+        return 0
     results = bt.run_backtest(cfg, candles, start.isoformat(), end.isoformat(), root, agent)
     bt.write_outputs(results, root)
     print(json.dumps(bt.summarize(results), indent=2))
@@ -68,6 +73,8 @@ def main(argv=None) -> int:
     bt.add_argument("--to", dest="end", help="last day YYYY-MM-DD (default: yesterday)")
     bt.add_argument("--agent", action="store_true",
                     help="use Claude agent ratings (costs tokens); default is the free momentum baseline")
+    bt.add_argument("--compare", action="store_true",
+                    help="run the built-in rule variants side by side on the same days")
     bt.add_argument("--max-runs", type=int, default=None, help="stop once this many NEW agent runs were made")
     args = p.parse_args(argv)
 

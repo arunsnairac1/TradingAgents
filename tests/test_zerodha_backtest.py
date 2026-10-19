@@ -130,3 +130,14 @@ def test_summary_math():
     assert s["net_pnl"] == 300.0 and s["trades"] == 4 and s["win_rate_pct"] == 50.0
     assert s["max_drawdown"] == 300.0 and s["target_days"] == 1
     assert s["profit_factor"] == pytest.approx(800 / 500)
+
+
+def test_compare_runs_each_variant_on_the_same_days(tmp_path):
+    day2 = with_bar(flat(1010.0), 11 * 60, high=1021.0, close=1020.0)
+    variants = {"base": {}, "wide": {"stop_loss_pct": 2.0, "target_pct": 0.8}}
+    out = bt.compare(cfg(), one_stock(flat(1000.0), day2), "2026-10-16", "2026-10-16",
+                     tmp_path, None, variants)
+    assert set(out) == set(variants)
+    assert out["base"][0].trades[0]["reason"] == "TARGET"
+    table = bt.format_comparison(out)
+    assert "base" in table and "wide" in table and "maxDD" in table

@@ -60,7 +60,8 @@ class SimBroker:
             out[s] = Quote(s, last.close, self.prev_close[s], sum(c.volume for c in seen),
                            low=min(c.low for c in since) if since else None,
                            high=max(c.high for c in since) if since else None,
-                           open=last.open)
+                           open=last.open,
+                           day_high=max(c.high for c in seen), day_low=min(c.low for c in seen))
         return out
 
     def market_order(self, symbol, side, qty, *, stop_price=None, limit_price=None):
@@ -190,3 +191,44 @@ def write_outputs(results: list[DayResult], out_dir: Path) -> None:
             for t in r.trades:
                 w.writerow([r.day, t["symbol"], t["direction"], t["qty"], t["entry"], t["exit"],
                             t["net_pnl"], t["reason"], t["rating"]])
+
+
+# --- side-by-side comparison -------------------------------------------------
+
+VARIANTS: dict[str, dict] = {
+    "baseline (0.5/1.0)": {},
+    "wider 0.8/1.6": {"stop_loss_pct": 0.8, "target_pct": 1.6},
+    "range stops": {"stop_mode": "range"},
+    "breakeven at +0.5%": {"breakeven_trigger_pct": 0.5},
+    "max 2 per side": {"max_same_direction": 2},
+    "scan at 09:45": {"scan_after": "09:45"},
+    "range+breakeven+2/side": {"stop_mode": "range", "breakeven_trigger_pct": 0.5, "max_same_direction": 2},
+}
+
+
+def compare(cfg: BotConfig, candles, start: str, end: str, root: Path, agent: CachedAgent | None = None,
+            variants: dict[str, dict] | None = None, log=print) -> dict[str, list[DayResult]]:
+    """Run every variant over the same candles (and, with an agent, the same cached ratings)."""
+    from dataclasses import replace
+
+    out = {}
+    for i, (name, overrides) in enumerate((variants or VARIANTS).items()):
+        log(f"--- {name}")
+        out[name] = run_backtest(replace(cfg, **overrides), candles, start, end, Path(root) / f"v{i}",
+                                 agent, log=lambda *_: None)
+    return out
+
+
+def format_comparison(results: dict[str, list[DayResult]], train_frac: float = 0.6) -> str:
+    """Table with the first `train_frac` of days vs. the rest, to expose a rule that only fits the past."""
+    header = f"{'variant':26s} {'net':>9s} {'first '+str(round(train_frac*100))+'%':>9s} {'rest':>9s} " \
+             f"{'win%':>6s} {'PF':>5s} {'maxDD':>8s} {'trades':>6s}"
+    lines = [header, "-" * len(header)]
+    for name, rs in results.items():
+        cut = int(len(rs) * train_frac)
+        s = summarize(rs)
+        first, rest = sum(r.realized for r in rs[:cut]), sum(r.realized for r in rs[cut:])
+        pf = "-" if s["profit_factor"] is None else f"{s['profit_factor']:.2f}"
+        lines.append(f"{name:26s} {s['net_pnl']:9.0f} {first:9.0f} {rest:9.0f} "
+                     f"{s['win_rate_pct']:6.1f} {pf:>5s} {s['max_drawdown']:8.0f} {s['trades']:6d}")
+    return "\n".join(lines)

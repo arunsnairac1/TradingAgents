@@ -32,6 +32,14 @@ class Quote:
     low: float | None = None
     high: float | None = None
     open: float | None = None
+    day_high: float | None = None
+    day_low: float | None = None
+
+    @property
+    def range_pct(self) -> float | None:
+        if self.day_high is None or self.day_low is None or not self.ltp:
+            return None
+        return (self.day_high - self.day_low) / self.ltp * 100
 
     @property
     def change_pct(self) -> float:
@@ -125,7 +133,8 @@ class KiteBroker:
         out = {}
         for key, q in raw.items():
             sym = key.split(":", 1)[1]
-            out[sym] = Quote(sym, float(q["last_price"]), float(q["ohlc"]["close"]), int(q.get("volume", 0)))
+            out[sym] = Quote(sym, float(q["last_price"]), float(q["ohlc"]["close"]), int(q.get("volume", 0)),
+                             day_high=float(q["ohlc"]["high"]), day_low=float(q["ohlc"]["low"]))
         return out
 
     def _place(self, symbol, side, qty, order_type, **kw):

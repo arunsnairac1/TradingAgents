@@ -191,3 +191,48 @@ def test_live_mode_rejects_bad_config():
         BotConfig(mode="yolo")
     with pytest.raises(ValueError):
         BotConfig(product="CNC")
+
+
+def test_range_mode_widens_stop_on_volatile_stocks_and_is_clamped():
+    c = cfg(stop_mode="range")
+    calm = risk.size(c, Ledger("d"), 0, "AAA", "LONG", 1000.0, range_pct=1.0)
+    wild = risk.size(c, Ledger("d"), 0, "AAA", "LONG", 1000.0, range_pct=4.0)
+    extreme = risk.size(c, Ledger("d"), 0, "AAA", "LONG", 1000.0, range_pct=20.0)
+    assert calm.stop_pct == 0.5            # floor at stop_loss_pct
+    assert wild.stop_pct == pytest.approx(1.2) and wild.target_pct == pytest.approx(2.4)
+    assert extreme.stop_pct == 1.5          # ceiling at stop_max_pct
+    assert wild.qty < calm.qty              # wider stop, same rupee risk -> fewer shares
+    assert wild.risk <= 400
+
+
+def test_fixed_mode_ignores_range():
+    plan = risk.size(cfg(), Ledger("d"), 0, "AAA", "LONG", 1000.0, range_pct=9.0)
+    assert plan.stop_pct == 0.5 and plan.target_pct == 1.0
+
+
+def test_same_direction_cap():
+    c = cfg(max_same_direction=1)
+    ledger = Ledger("d", positions={"X": Position("X", "LONG", 1, 1, 1, 1, 1)})
+    assert "open longs" in risk.size(c, ledger, 0, "AAA", "LONG", 1000)
+    assert not isinstance(risk.size(c, ledger, 0, "AAA", "SHORT", 1000), str)
+
+
+def test_breakeven_moves_stop_then_scratch_exit(tmp_path):
+    broker = FakeBroker({"AAA": 1000.0}, prev={"AAA": 980.0})
+    eng = Engine(cfg(breakeven_trigger_pct=0.5), broker, FakeSignals({"AAA": "Buy"}), Store(tmp_path),
+                 now=Clock(), sleep=lambda s: None)
+    eng._scan_and_enter()
+    pos = eng.ledger.positions["AAA"]
+    assert pos.stop < pos.entry
+    broker.prices["AAA"] = 1006.0          # +0.6%: past the trigger, short of the 1% target
+    eng.tick()
+    assert pos.stop == pos.entry and "AAA" in eng.ledger.positions
+    broker.prices["AAA"] = 999.0           # falls back through entry
+    eng.tick()
+    assert eng.ledger.trades[0]["reason"] == "STOP"
+    assert eng.ledger.trades[0]["net_pnl"] > -200  # scratch, not the full stop loss
+
+
+def test_universe_has_the_tata_motors_split():
+    from zerodha_bot.universe import NIFTY50
+    assert "TATAMOTORS" not in NIFTY50 and {"TMPV", "TMCV"} <= set(NIFTY50)
