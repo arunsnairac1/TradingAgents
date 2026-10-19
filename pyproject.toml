@@ -36,6 +36,10 @@ dev = [
     "pytest>=8.0",
     "pytest-subtests>=0.13",
 ]
+# Zerodha Kite Connect for the intraday bot: pip install "tradingagents[zerodha]".
+zerodha = [
+    "kiteconnect>=5.0",
+]
 # Amazon Bedrock support (AWS SigV4 auth + boto3). Optional so the core install
 # stays lean: pip install "tradingagents[bedrock]".
 bedrock = [
@@ -44,12 +48,13 @@ bedrock = [
 
 [project.scripts]
 tradingagents = "cli.main:app"
+zerodha-bot = "zerodha_bot.cli:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "tradingagents.__version__"}
 
 [tool.setuptools.packages.find]
-include = ["tradingagents*", "cli*"]
+include = ["tradingagents*", "cli*", "zerodha_bot*"]
 
 [tool.setuptools.package-data]
 cli = ["static/*"]
