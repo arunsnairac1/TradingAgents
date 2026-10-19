@@ -141,3 +141,24 @@ def test_compare_runs_each_variant_on_the_same_days(tmp_path):
     assert out["base"][0].trades[0]["reason"] == "TARGET"
     table = bt.format_comparison(out)
     assert "base" in table and "wide" in table and "maxDD" in table
+
+
+def test_breakeven_stop_is_not_hit_by_dips_from_before_it_moved():
+    # Enter ~1010, dip below entry (stop is ~1005, not touched), rally past +0.5% and hold above entry,
+    # then reach the 1% target. The pre-rally dip must not stop out the moved stop.
+    day2 = flat(1010.0, end=10 * 60 + 10) + flat(1015.0, start=10 * 60 + 10)
+    day2 = with_bar(day2, 10 * 60, low=1006.0, close=1008.0)
+    day2 = with_bar(day2, 10 * 60 + 10, high=1016.0)
+    day2 = with_bar(day2, 10 * 60 + 30, high=1030.0, close=1025.0)
+    [res] = run(one_stock(flat(1000.0), day2), breakeven_trigger_pct=0.5)
+    [t] = res.trades
+    assert t["reason"] == "TARGET" and t["net_pnl"] > 0
+
+
+def test_breakeven_scratches_on_a_real_reversal_through_entry():
+    day2 = flat(1010.0, end=10 * 60 + 10) + flat(1015.0, start=10 * 60 + 10)
+    day2 = with_bar(day2, 10 * 60 + 10, high=1016.0)
+    day2 = with_bar(day2, 10 * 60 + 20, low=1008.0, close=1009.0)    # back through entry
+    [res] = run(one_stock(flat(1000.0), day2), breakeven_trigger_pct=0.5)
+    t = res.trades[0]
+    assert t["reason"] == "STOP" and t["exit"] == 1010.0 and -100 < t["net_pnl"] < 0

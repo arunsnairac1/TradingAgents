@@ -56,7 +56,10 @@ class SimBroker:
             if not seen or s not in self.prev_close:
                 continue
             last = seen[-1]
-            since = [c for c in seen if c.minute >= self.entry_minute.get(s, 10**6)]
+            # Only bars that completed since the previous step and after entry: a stop that has
+            # since moved (breakeven) must not be tested against dips from before it moved.
+            first_new = max(self.entry_minute.get(s, 10**6), self.clock.minute - 1)
+            since = [c for c in seen if c.minute >= first_new]
             out[s] = Quote(s, last.close, self.prev_close[s], sum(c.volume for c in seen),
                            low=min(c.low for c in since) if since else None,
                            high=max(c.high for c in since) if since else None,
