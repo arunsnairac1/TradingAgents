@@ -21,6 +21,27 @@ zerodha-bot report
 ```
 Alternatively export `KITE_ACCESS_TOKEN` and skip `login`. Your Zerodha password/TOTP are never handled by the bot.
 
+## Backtest
+```bash
+zerodha-bot backtest --from 2026-09-01 --to 2026-10-16            # free momentum baseline, no LLM
+zerodha-bot backtest --from 2026-09-01 --to 2026-10-16 --agent --max-runs 60   # Claude ratings
+```
+Replays each past day minute by minute through the same engine, rules, charges and daily limits as live
+(only the broker and clock are simulated), using Kite 1-minute candles (needs the Connect plan's historical API;
+candles are cached under `~/.tradingagents/zerodha/hist`). Prints win rate, profit factor, max drawdown and days
+that hit the target or loss limit; trades go to `trades.csv` beside `summary.json` in `~/.tradingagents/zerodha/backtests/`.
+
+- **Run the baseline first.** It is free and shows whether the rules make money without the agent; `--agent` is only
+  interesting if it beats that.
+- Agent ratings are cached per (symbol, day), so changing stops, targets or leverage and re-running costs nothing.
+  `--max-runs` caps new Claude runs (checked at each day's start, so it can overshoot by up to `ZBOT_SCAN_TOP_N`).
+- The agent is asked as of the *previous* trading day, because TradingAgents serves the as-of day's whole daily bar,
+  which on a replayed morning would be that day's close.
+- Claude may remember real market moves before its training cutoff, which flatters results on older dates.
+- A bar that touches both stop and target counts as the stop; a gap through the stop fills at the open;
+  `ZBOT_BACKTEST_SLIPPAGE_PCT` (0.03) is charged against you on every fill. Real fills can still be worse.
+- Scan inputs are approximate: volume is cumulative to the scan time, and the universe is today's Nifty 50.
+
 ## Rules (all `ZBOT_*` env overrides, see `config.py`)
 | Rule | Default |
 |---|---|

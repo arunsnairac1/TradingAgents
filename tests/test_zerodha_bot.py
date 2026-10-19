@@ -22,7 +22,7 @@ class FakeBroker:
     def quotes(self, symbols):
         return {s: Quote(s, self.prices[s], self.prev.get(s, self.prices[s]), self.volume) for s in symbols if s in self.prices}
 
-    def market_order(self, symbol, side, qty):
+    def market_order(self, symbol, side, qty, **_):
         self.orders.append((symbol, side, qty))
         return Fill(f"o{len(self.orders)}", self.prices[symbol], qty)
 

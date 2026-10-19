@@ -75,7 +75,7 @@ class Engine:
         return True
 
     # --- exits -------------------------------------------------------------
-    def exit(self, symbol: str, reason: str) -> None:
+    def exit(self, symbol: str, reason: str, **fill_hints) -> None:
         pos = self.ledger.positions[symbol]
         if pos.stop_order:
             try:
@@ -83,7 +83,7 @@ class Engine:
             except Exception as exc:
                 log.warning("%s: cancel of stop order failed: %s", symbol, exc)
         side = "SELL" if pos.direction == "LONG" else "BUY"
-        fill = self.broker.market_order(symbol, side, pos.qty)  # raises -> retried next tick
+        fill = self.broker.market_order(symbol, side, pos.qty, **fill_hints)  # raises -> retried next tick
         pnl = net_pnl(pos.direction, pos.qty, pos.entry, fill.price)
         self.ledger.realized += pnl
         self.ledger.trades.append({"symbol": symbol, "direction": pos.direction, "qty": pos.qty,
@@ -106,16 +106,21 @@ class Engine:
             return
         quotes = self.broker.quotes(list(self.ledger.positions))
         for symbol, pos in list(self.ledger.positions.items()):
-            ltp = quotes[symbol].ltp
+            q = quotes[symbol]
+            lo = q.ltp if q.low is None else q.low
+            hi = q.ltp if q.high is None else q.high
             long_ = pos.direction == "LONG"
-            if (ltp <= pos.stop) if long_ else (ltp >= pos.stop):
-                self._try_exit(symbol, "STOP")
-            elif (ltp >= pos.target) if long_ else (ltp <= pos.target):
-                self._try_exit(symbol, "TARGET")
+            stop_hit = lo <= pos.stop if long_ else hi >= pos.stop
+            target_hit = hi >= pos.target if long_ else lo <= pos.target
+            # A bar that touches both is scored as the stop: the pessimistic reading.
+            if stop_hit:
+                self._try_exit(symbol, "STOP", stop_price=pos.stop)
+            elif target_hit:
+                self._try_exit(symbol, "TARGET", limit_price=pos.target)
 
-    def _try_exit(self, symbol, reason):
+    def _try_exit(self, symbol, reason, **fill_hints):
         try:
-            self.exit(symbol, reason)
+            self.exit(symbol, reason, **fill_hints)
         except Exception as exc:
             log.error("%s: %s exit failed (%s); retrying next tick", symbol, reason, exc)
 

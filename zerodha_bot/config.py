@@ -53,6 +53,7 @@ class BotConfig:
     squareoff_at: str = "15:15"           # Zerodha auto-squares MIS around 15:20
     poll_seconds: int = 20
 
+    backtest_slippage_pct: float = 0.03   # against you on every simulated fill
     exchange: str = "NSE"
     product: str = "MIS"
 

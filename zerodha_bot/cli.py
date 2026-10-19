@@ -8,7 +8,7 @@ import logging
 import sys
 
 from . import broker as brk
-from .config import BotConfig
+from .config import HOME, BotConfig
 
 
 def _build_engine(cfg: BotConfig):
@@ -21,6 +21,38 @@ def _build_engine(cfg: BotConfig):
     return Engine(cfg, active, AgentSignals(cfg), Store())
 
 
+def _backtest(cfg: BotConfig, args) -> int:
+    from datetime import date, datetime, timedelta
+
+    from . import backtest as bt
+    from .universe import resolve
+
+    end = date.fromisoformat(args.end) if args.end else date.today() - timedelta(days=1)
+    start = date.fromisoformat(args.start) if args.start else end - timedelta(days=28)
+    if start > end:
+        raise SystemExit("--from must not be after --to")
+    candles = brk.KiteHistorical(cfg.exchange).fetch(resolve(cfg.universe), start, end)
+
+    agent = None
+    if args.agent:
+        from .signals import AgentSignals
+
+        days = sum(1 for d in {d for per in candles.values() for d in per} if start.isoformat() <= d <= end.isoformat())
+        print(f"{days} trading days x up to {cfg.scan_top_n} agent runs = up to {days * cfg.scan_top_n} Claude runs "
+              f"(cached ones are free; --max-runs caps new ones).")
+        if input("Type RUN to continue: ").strip() != "RUN":
+            return 1
+        agent = bt.CachedAgent(AgentSignals(cfg), HOME / "signals" / cfg.quick_think_llm, args.max_runs)
+
+    name = f"{datetime.now():%Y%m%d-%H%M%S}-{'agent' if agent else 'momentum'}"
+    root = HOME / "backtests" / name
+    results = bt.run_backtest(cfg, candles, start.isoformat(), end.isoformat(), root, agent)
+    bt.write_outputs(results, root)
+    print(json.dumps(bt.summarize(results), indent=2))
+    print(f"Trades and summary saved in {root}")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="zerodha-bot")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -31,6 +63,12 @@ def main(argv=None) -> int:
     run = sub.add_parser("run", help="run the trading day")
     run.add_argument("--live", action="store_true", help="send real orders (default is dry-run)")
     sub.add_parser("report", help="print today's ledger")
+    bt = sub.add_parser("backtest", help="replay past days on Kite 1-minute candles (no orders)")
+    bt.add_argument("--from", dest="start", help="first day YYYY-MM-DD (default: 4 weeks before --to)")
+    bt.add_argument("--to", dest="end", help="last day YYYY-MM-DD (default: yesterday)")
+    bt.add_argument("--agent", action="store_true",
+                    help="use Claude agent ratings (costs tokens); default is the free momentum baseline")
+    bt.add_argument("--max-runs", type=int, default=None, help="stop once this many NEW agent runs were made")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -54,6 +92,8 @@ def main(argv=None) -> int:
             if input("Type LIVE to continue: ").strip() != "LIVE":
                 return 1
         _build_engine(cfg).run()
+    elif args.cmd == "backtest":
+        return _backtest(cfg, args)
     elif args.cmd == "report":
         from datetime import datetime
 
